@@ -6,29 +6,37 @@
 #
 use warnings;
 
-use constant BITRATE_BAR_ENABLE => 0;       # 0 disable, 1 enable, dont use with mode CSV
-use constant ALIGN => 3;                    # 3 right bottom, 9 right top, see ASS format for details
-use constant MARGIN => 3;                   # distance to the border 0, 10 or whatever
-use constant FONTSIZE => 13;                # 10, 15 or whatever
-use constant FONTTRANSPARENCY => 140;       # 0 to 255
-use constant OUTPUTFORMAT => ASS;           # ASS or CSV
 
-use constant OUTPUTTEMPLATE => q(Dialogue: 0,{start_time},{end_time},Default,,0,0,0,, {delay}\N{bitrate}); # example subtitles
-use constant OUTPUTTEMPLATECSV => q({end_time},{signal},{ch},{flightTime},{uavBat},{glsBat},{uavBatCells},{glsBatCells},{delay},{bitrate},{rcSignal}); #example CSV
+use constant OUTPUTFORMAT => ASS;           # ASS or CSV
+use constant ALIGN      => 9;               # 3 right bottom, 9 right top, see ASS format for details
+use constant MARGIN     => 3;               # distance to the border 0, 10 or whatever
+
+use constant FONTSIZE           => 13;          # 10, 15 or whatever
+use constant FONTTRANSPARENCY   => 0;           # 0 to 255
+use constant FONTCOLOR          => q(FFFFFF);   # 0 to 255
+
+use constant BITRATE_BAR_ENABLE  => 1;          # 0 disable, 1 enable-full,  dont use with mode CSV!
+use constant BITRATE_BAR_SIZEPCT => 50;         # size in percent related to font size and charachter
+use constant BITRATE_BAR_CHAR    => '▄';        # or █
+#use constant BITRATE_BAR_COLORS  => qw(H959595 HFFFFFF);  # white on grey
+use constant BITRATE_BAR_COLORS => qw(H959595  H0000FF H0079FF H3BFF00 );  # grey, red, orange, green
+
+use constant OUTPUTTEMPLATE     => q(Dialogue: 0,{start_time},{end_time},Default,,0,0,0,,{bitrate}\N{delay}); # example subtitles
+use constant OUTPUTTEMPLATECSV  => q({end_time},{signal},{ch},{flightTime},{uavBat},{glsBat},{uavBatCells},{glsBatCells},{delay},{bitrate},{rcSignal}); #example CSV
 
 ### available fields:
-# signal
-# ch
-# flightTime
-# uavBat
-# glsBat
-# uavBatCells
-# glsBatCells
-# delay
-# bitrate
-# rcSignal
-# start_time
-# end_time
+# {signal}
+# {ch}
+# {flightTime}
+# {uavBat}
+# {glsBat}
+# {uavBatCells}
+# {glsBatCells}
+# {delay}
+# {bitrate}
+# {rcSignal}
+# {start_time}
+# {end_time}
 ###
 
 
@@ -42,7 +50,7 @@ YCbCr Matrix: None
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,Consolas,).FONTSIZE.q(,&H).sprintf("%X", FONTTRANSPARENCY).q(FFFFFF,&H).sprintf("%X", FONTTRANSPARENCY).q(0000FF,&H7E000000,&HFF000000,0,0,0,0,100,100,0,0,1,1,0,).ALIGN.q(,).MARGIN.q(,).MARGIN.q(,).MARGIN.q(,1
+Style: Default,Consolas,).FONTSIZE.q(,&H).sprintf("%X%s", FONTTRANSPARENCY,FONTCOLOR).q(,&H).sprintf("%X", FONTTRANSPARENCY).q(0000FF,&H7E000000,&HFF000000,0,0,0,0,100,100,0,0,1,1,0,).ALIGN.q(,).MARGIN.q(,).MARGIN.q(,).MARGIN.q(,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -53,14 +61,16 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 #Style: Default,Consolas,13,&H00FFFFFF,&H000000FF,&H7E000000,&HFF000000,0,0,0,0,80,100,0,0,1,1,0,3,10,10,10,1
 
 
-    # begin of the script #
+# begin of the script #
 
-    my $version = "v0.0.1";
+    my $version = "v0.0.2";
     my $inputFile  = $ARGV[0];
     my $outputFile = $ARGV[1];
        $outputFile = $inputFile =~ s/\.srt/\.csv/gr if !$outputFile && OUTPUTFORMAT eq 'CSV'; 
        $outputFile = $inputFile =~ s/\.srt/\.ass/gr if !$outputFile; 
     my $maxBitrate;
+    my $bitrateBarCharacter = BITRATE_BAR_CHAR;
+    my @bitrateBarColor     = BITRATE_BAR_COLORS; 
 
     print "| DJI SRT converter, $version\n";
     die "!! could not open file $inputFile\n" if ! -e $inputFile ;
@@ -108,21 +118,22 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
             if( BITRATE_BAR_ENABLE ){
                 my ( $bitrate) = $dataMap->{'bitrate'} =~ m/(\d.+)\..+Mbps/;
+                $bitrate = int($bitrate/100*BITRATE_BAR_SIZEPCT);
+
                 $maxBitrate = int($bitrate) if !$maxBitrate;
-                my $bitrateBar ='{\c&H959595&}';   #grey
-                for (my $i=$bitrate; $i<$maxBitrate; $i++){     # fill grey bars
-                    $bitrateBar .= '█';
+                my $bitrateBar;
+                my $i=$maxBitrate;
+                while($i > 0){
+                    my $colorIndex=0;                            # set color to background
+                    if($bitrate < $i){                           # counter is below bitrate, background color
+                        $colorIndex=0;                           # set color to background
+                    }else{                                       # calculate color codings
+                        $colorIndex = int((scalar(@bitrateBarColor-1) * ($bitrate / $maxBitrate ) )+0.6);
+                    }
+                    $bitrateBar .=  sprintf('{\c&%s&}%s', $bitrateBarColor[$colorIndex] ? $bitrateBarColor[$colorIndex] : $bitrateBarColor[1] , $bitrateBarCharacter ); 
+                    $i--;
                 }
-                if($bitrate > int($maxBitrate * 0.8)){          # print color
-                    $bitrateBar.='{\c&H3BFF00&}';   #green
-                }elsif($bitrate > int($maxBitrate * 0.4) ){
-                    $bitrateBar.= '{\c&H0079FF&}';  #orange
-                }else{
-                    $bitrateBar.= '{\c&H0000FF&}';  #red
-                }
-                for (my $i=1;$i<$bitrate;$i++){                 # print "full" bars
-                    $bitrateBar .= '█';
-                }
+                $bitrateBar .= sprintf('{\c&%X%s}', FONTTRANSPARENCY,FONTCOLOR);     #reset color
                 $output =~ s/\{bitrate\}/$bitrateBar/;          # replace in output string
             }
 
